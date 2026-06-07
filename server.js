@@ -4,41 +4,45 @@ const wss = new WebSocketServer({ port: 8080 });
 const clients = new Map();
 
 wss.on('connection', (ws, req) => {
-    console.log(`[СЕРВЕР] Новое физическое подключение!`);
+    // ЖЕСТКИЙ ПЕРВИЧНЫЙ ЛОГ: Срабатывает при любом сетевом стуке в облако
+    console.log(`[СЕРВЕР] Физический коннект! Всего клиентов на связи: ${wss.clients.size}`);
 
     ws.on('message', (message, isBinary) => {
-        // Если косилка шлет бинарный кадр камеры (isBinary)
+        // 1. СЛОЙ СТРИМИНГА ВИДЕО: Если пришли бинарные байты картинки (JFIF)
         if (isBinary || Buffer.isBuffer(message)) {
             const remoteWs = clients.get('remote');
-            if (remoteWs && remoteWs.readyState === 1) { // 1 означает OPEN
+            if (remoteWs && remoteWs.readyState === 1) { // 1 — OPEN
                 remoteWs.send(message, { binary: true });
             }
-            return;
+            return; 
         }
 
-        // Если пришел обычный текст (регистрация)
+        // 2. СЛОЙ СИСТЕМНОГО ТЕКСТА (JSON Регистрация)
         try {
             const data = JSON.parse(message);
-            if (data.type === 'register') {
-                const clientId = data.id;
-                clients.set(clientId, ws);
-                console.log(`[СЕРВЕР] Клиент успешно зарегистрирован: ${clientId}`);
+            if (data.type === 'register' && data.id) {
+                // Привязываем ID устройства напрямую к объекту сокета, чтобы избежать путаницы с let/const
+                ws.id = data.id; 
+                clients.set(ws.id, ws);
+                console.log(`[СЕРВЕР] Успешная регистрация: ${ws.id}`);
+                
+                // Подтверждаем пульту, что косилка зашла, если они оба в сети
+                if (ws.id === 'mower' && clients.has('remote')) {
+                    clients.get('remote').send(JSON.stringify({ system: 'mower_online' }));
+                }
                 return;
             }
         } catch (err) {
-            console.error('[СЕРВЕР] Ошибка парсинга текста:', err.message);
+            console.error('[СЕРВЕР] Ошибка парсинга JSON текста:', err.message);
         }
     });
 
     ws.on('close', () => {
-        for (let [id, clientWs] of clients.entries()) {
-            if (clientWs === ws) {
-                clients.delete(id);
-                console.log(`[СЕРВЕР] Клиент отключился: ${id}`);
-                break;
-            }
+        if (ws.id) {
+            clients.delete(ws.id);
+            console.log(`[СЕРВЕР] Устройство отключилось: ${ws.id}`);
         }
     });
 });
 
-console.log('Умный видеосервер запущен в облаке Render и готов к работе!');
+console.log('Умный видеосервер запущен в облаке Render и полностью готов к работе!');
