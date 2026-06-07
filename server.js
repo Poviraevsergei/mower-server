@@ -31,6 +31,17 @@ wss.on('connection', (ws, req) => {
                     }
                     return; 
                 }
+                if (data.type === 'control' && data.cmd) {
+                    console.log(`[ПЕРЕСЫЛКА] Пульт отправил команду: ${data.cmd}`);
+                    
+                    const mowerWs = clients.get('mower');
+                    if (mowerWs && mowerWs.readyState === 1) {
+                        mowerWs.send(data.cmd); 
+                    } else {
+                        console.log(`[ОШИБКА] Не удалось переслать команду ${data.cmd}. Косилка не в сети!`);
+                    }
+                    return;
+                }
             } catch (err) {
                 // Если не JSON, идем дальше к стримингу
             }
