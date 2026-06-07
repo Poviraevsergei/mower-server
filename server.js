@@ -9,14 +9,18 @@ wss.on('connection', (ws, req) => {
     console.log(`[СЕРВЕР] Физический коннект! Всего сокетов в памяти: ${wss.clients.size}`);
 
     ws.on('message', (message, isBinary) => {
-        let messageString = '';
-        if (Buffer.isBuffer(message)) {
-            messageString = message.toString();
-        } else if (typeof message === 'string') {
-            messageString = message;
+        if(isBinary) {
+            if (ws.id === 'mower') {
+                const remoteWs = clients.get('remote');
+                if (remoteWs && remoteWs.readyState === 1) { 
+                    remoteWs.send(message, { binary: true });
+                }
+            }
+            return; 
         }
 
-        // 1. СЛОЙ СИСТЕМНОГО ТЕКСТА И КОМАНД (JSON)
+        const messageString = message.toString();
+
         if (messageString.trim().startsWith('{')) {
             try {
                 const data = JSON.parse(messageString);
@@ -45,35 +49,25 @@ wss.on('connection', (ws, req) => {
 
                 // Пересылка команд управления от remote к mower
                 if (data.type === 'control' && data.cmd) {
-    // ВОЗВРАЩАЕМ ЛОГ: Теперь сервер будет четко писать, что и куда он переслал
-    console.log(`[КОМАНДА РУЛЕНИЯ] Пересылаю команду от пульта на косилку: ${data.cmd}`);
+                    console.log(`[КОМАНДА РУЛЕНИЯ] Пересылаю команду от пульта на косилку: ${data.cmd}`);
 
-    const mowerWs = clients.get('mower');
-    if (mowerWs && mowerWs.readyState === 1) {
-        mowerWs.send(data.cmd); 
-    } else {
-        console.log(`[ВНИМАНИЕ] Команда ${data.cmd} не переслана. Косилка отключена от сети!`);
-    }
-    return; 
-}
+                    const mowerWs = clients.get('mower');
+                    if (mowerWs && mowerWs.readyState === 1) {
+                        mowerWs.send(data.cmd); 
+                    } else {
+                        console.log(`[ВНИМАНИЕ] Команда ${data.cmd} не переслана. Косилка отключена от сети!`);
+                    }
+                    return; 
+                }
             } catch (err) {
-                // Игнорируем ошибки парсинга, идем к видео
+                console.log(`[ОШИБКА] Ошибка парсинга`);
             }
-        }
-
-        // 2. СЛОЙ СТРИМИНГА ВИДЕО
-        if (ws.id === 'mower') {
-            const remoteWs = clients.get('remote');
-            if (remoteWs && remoteWs.readyState === 1) { 
-                remoteWs.send(message, { binary: true });
-            }
-            return; 
         }
     });
 
     ws.on('close', () => {
         if (ws.id) {
-            // Удаляем из карты только если текущий закрывающийся сокет совпадает с тем, что лежит в Map
+          // Удаляем из карты только если текущий закрывающийся сокет совпадает с тем, что лежит в Map  
             if (clients.get(ws.id) === ws) {
                 clients.delete(ws.id);
                 console.log(`[СЕРВЕР] Устройство отключилось штатно: ${ws.id}`);
@@ -82,4 +76,4 @@ wss.on('connection', (ws, req) => {
     });
 });
 
-console.log(`Умный видеосервер запущен на порту ${serverPort} в облаке Render и готов к работе!`);
+console.log(`Триммер видеосервер запущен на порту ${serverPort} и готов к работе!`);
