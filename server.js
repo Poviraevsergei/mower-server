@@ -49,15 +49,19 @@ wss.on('connection', (ws, req) => {
 
                 // Пересылка команд управления от remote к mower
                 if (data.type === 'control' && data.cmd) {
-                    console.log(`[КОМАНДА РУЛЕНИЯ] Пересылаю команду от пульта на косилку: ${data.cmd}`);
-
-                    const mowerWs = clients.get('mower');
-                    if (mowerWs && mowerWs.readyState === 1) {
-                        mowerWs.send(data.cmd); 
+                const mowerWs = clients.get('mower');
+                if (mowerWs && mowerWs.readyState === 1) {
+                    if (data.cmd === 'CAM_SET') {
+                        console.log(`[СЕРВЕР] Пересылаю полный JSON настроек камеры на косилку`);
+                        mowerWs.send(messageString); 
                     } else {
-                        console.log(`[ВНИМАНИЕ] Команда ${data.cmd} не переслана. Косилка отключена от сети!`);
+                        console.log(`[КОМАНДА РУЛЕНИЯ] Пересылаю команду от пульта на косилку: ${data.cmd}`);
+                        mowerWs.send(data.cmd); 
                     }
-                    return; 
+                } else {
+                console.log(`[ВНИМАНИЕ] Команда ${data.cmd} не переслана. Косилка отключена от сети!`);
+                }
+                return; 
                 }
             } catch (err) {
                 console.log(`[ОШИБКА] Ошибка парсинга`);
