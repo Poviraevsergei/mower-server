@@ -71,10 +71,14 @@ wss.on('connection', (ws, req) => {
 
     ws.on('close', () => {
         if (ws.id) {
-          // Удаляем из карты только если текущий закрывающийся сокет совпадает с тем, что лежит в Map  
             if (clients.get(ws.id) === ws) {
                 clients.delete(ws.id);
                 console.log(`[СЕРВЕР] Устройство отключилось штатно: ${ws.id}`);
+                
+                // Если отключилась косилка, сообщаем пульту в Минск
+                if (ws.id === 'mower' && clients.has('remote')) {
+                    clients.get('remote').send(JSON.stringify({ system: 'mower_offline' }));
+                }
             }
         }
     });
