@@ -37,7 +37,6 @@
 <div id="status" class="status">Статус: Подключение к серверу...</div>
 
 <div class="dashboard">
-    <!-- ХОДОВАЯ ЧАСТЬ -->
     <div class="control-board">
         <div></div>
         <button class="btn" id="btn-forward">▲</button>
@@ -52,7 +51,6 @@
         <div></div>
     </div>
 
-    <!-- СИЛОВАЯ ЧАСТЬ -->
     <div class="engine-board">
         <div class="engine-title">Электронож косилки</div>
         <button class="btn btn-eng-start" id="btn-eng-start">⚡ ВКЛЮЧИТЬ НОЖ</button>
@@ -60,10 +58,31 @@
     </div>
 </div>
 
+<div class="camera-board" style="width: 640px; margin: 15px auto; padding: 12px; background: #2a2a2a; border: 1px solid #444; border-radius: 8px; box-sizing: border-box; display: flex; justify-content: space-around; align-items: center;">
+    <div style="display: flex; flex-direction: column; text-align: left; gap: 5px;">
+        <label style="font-size: 11px; color: #ffaa00; font-weight: bold; text-transform: uppercase;">Разрешение</label>
+        <select id="resSelect" style="background: #333; color: #fff; border: 1px solid #555; padding: 6px 10px; border-radius: 4px; font-size: 14px; cursor: pointer; outline: none;">
+            <option value="5">HQVGA (240x160) - Эконом</option>
+            <option value="6" selected>QVGA (320x240) - Базовое</option>
+            <option value="8">CIF (400x296) - Четкое</option>
+            <option value="9">VGA (640x480) - Максимум</option>
+        </select>
+    </div>
+    <div style="display: flex; flex-direction: column; text-align: left; gap: 5px;">
+        <label style="font-size: 11px; color: #ffaa00; font-weight: bold; text-transform: uppercase;">Сжатие (JPEG Quality)</label>
+        <select id="qualitySelect" style="background: #333; color: #fff; border: 1px solid #555; padding: 6px 10px; border-radius: 4px; font-size: 14px; cursor: pointer; outline: none;">
+            <option value="25">Высокое сжатие (Легкий поток)</option>
+            <option value="18" selected>Качество 18 (Сжатое)</option>
+            <option value="14">Качество 14 (Оптимальное)</option>
+            <option value="10">Качество 10 (Тяжелый кадр)</option>
+        </select>
+    </div>
+    <button style="background: #ffaa00; color: #000; font-weight: bold; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-size: 14px;" onclick="applyCamSettings()">Применить</button>
+</div>
+
 <div id="logs"></div>
 
 <script>
-    // ТЕПЕРЬ ТУТ СТРОГО ИСПРАВЛЕННЫЙ, ЧИСТЫЙ АДРЕС ВАШЕГО СЕРВЕРА С ЗАЩИТОЙ ОТ КЭША
     const ws = new WebSocket('wss://mower-server.onrender.com');
     const canvas = document.getElementById('videoCanvas');
     const ctx = canvas.getContext('2d');
@@ -96,7 +115,9 @@
                     frameCount = 0;
                     lastFpsUpdate = now;
                 }
-            } catch (err) {}
+            } catch (err) {
+                // Тихо игнорируем битые сетевые пакеты
+            }
             return;
         }
         log('Получено от сервера: ' + message.data);
@@ -106,6 +127,24 @@
         if (ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: 'control', cmd: action }));
             log('Отправлена команда: ' + action, action.includes('ENGINE') ? '#ffaa00' : '#00ff00');
+        }
+    }
+
+    function applyCamSettings() {
+        const resolution = parseInt(document.getElementById('resSelect').value);
+        const quality = parseInt(document.getElementById('qualitySelect').value);
+
+        if (ws.readyState === WebSocket.OPEN) {
+            const payload = {
+                type: "control",
+                cmd: "CAM_SET",
+                res: resolution,
+                val: quality
+            };
+            ws.send(JSON.stringify(payload));
+            log(`Отправлены настройки камеры: Режим ${resolution}, Качество ${quality}`, '#ffaa00');
+        } else {
+            log('Ошибка: Нет соединения с сервером!', '#ff0000');
         }
     }
 
@@ -137,7 +176,6 @@
     setupEngineBtn('btn-eng-start', 'ENGINE_START');
     setupEngineBtn('btn-eng-stop', 'ENGINE_STOP');
 
-    // --- СЛОЙ КЛАВИАТУРЫ ---
     const keyMap = {
         'KeyW': { cmd: 'FORWARD', id: 'btn-forward' }, 'ArrowUp': { cmd: 'FORWARD', id: 'btn-forward' },
         'KeyS': { cmd: 'BACKWARD', id: 'btn-backward' }, 'ArrowDown': { cmd: 'BACKWARD', id: 'btn-backward' },
