@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Пульт управления газонокосилкой</title>
+    <style>
+        body { font-family: sans-serif; background: #222; color: #fff; text-align: center; margin: 0; padding: 15px; user-select: none; }
+        #video-container { width: 640px; height: 480px; background: #000; margin: 10px auto; border: 4px solid #444; border-radius: 8px; overflow: hidden; display: flex; align-items: center; justify-content: center; }
+        canvas { width: 100%; height: 100%; object-fit: contain; background: #000; }
+        .status { font-size: 18px; color: #00ff00; font-weight: bold; margin: 10px 0; }
+        #logs { width: 630px; height: 80px; background: #111; margin: 10px auto; padding: 5px; font-family: monospace; font-size: 12px; color: #aaa; text-align: left; overflow-y: scroll; border: 1px solid #333; }
+
+        .dashboard { display: flex; justify-content: center; gap: 40px; width: 640px; margin: 0 auto; }
+        .control-board { width: 240px; display: grid; grid-template-columns: repeat(3, 1fr); grid-gap: 8px; }
+        .engine-board { width: 240px; display: flex; flex-direction: column; gap: 12px; justify-content: center; border: 2px dashed #555; padding: 15px; border-radius: 8px; box-sizing: border-box; }
+        .engine-title { font-size: 14px; font-weight: bold; color: #ffaa00; text-transform: uppercase; letter-spacing: 1px; }
+
+        .btn { background: #444; color: #fff; border: none; padding: 18px; font-size: 18px; font-weight: bold; border-radius: 8px; cursor: pointer; transition: background 0.1s; touch-action: manipulation; }
+        .btn:active, .btn.keyboard-active { background: #00ff00; color: #000; }
+        .btn-stop { background: #ff0000; }
+        .btn-stop:active, .btn-stop.keyboard-active { background: #cc0000; color: #fff; }
+
+        .btn-eng-start { background: #ff3333; color: #fff; padding: 15px; font-size: 14px; border: 2px solid #ff0000; }
+        .btn-eng-start:active { background: #b30000; }
+        .btn-eng-stop { background: #2a2a2a; color: #00ff00; padding: 15px; font-size: 14px; border: 2px solid #00ff00; }
+        .btn-eng-stop:active { background: #1a1a1a; }
+    </style>
+</head>
+<body>
+
+<h1>Минск &rarr; Островец (Прямой Видеострим)</h1>
+
+<div id="video-container">
+    <canvas id="videoCanvas"></canvas>
+</div>
+
+<div id="status" class="status">Статус: Подключение к серверу...</div>
+
+<div class="dashboard">
+    <!-- ХОДОВАЯ ЧАСТЬ -->
+    <div class="control-board">
+        <div></div>
+        <button class="btn" id="btn-forward">▲</button>
+        <div></div>
+
+        <button class="btn" id="btn-left">◀</button>
+        <button class="btn btn-stop" id="btn-stop">■</button>
+        <button class="btn" id="btn-right">▶</button>
+
+        <div></div>
+        <button class="btn" id="btn-backward">▼</button>
+        <div></div>
+    </div>
+
+    <!-- СИЛОВАЯ ЧАСТЬ -->
+    <div class="engine-board">
+        <div class="engine-title">Электронож косилки</div>
+        <button class="btn btn-eng-start" id="btn-eng-start">⚡ ВКЛЮЧИТЬ НОЖ</button>
+        <button class="btn btn-eng-stop" id="btn-eng-stop">🛑 ОТКЛЮЧИТЬ НОЖ</button>
+    </div>
+</div>
+
+<div id="logs"></div>
+
+<script>
+    // ТЕПЕРЬ ТУТ СТРОГО ИСПРАВЛЕННЫЙ, ЧИСТЫЙ АДРЕС ВАШЕГО СЕРВЕРА С ЗАЩИТОЙ ОТ КЭША
+    const ws = new WebSocket('wss://mower-server.onrender.com');
+    const canvas = document.getElementById('videoCanvas');
+    const ctx = canvas.getContext('2d');
+
+    let frameCount = 0;
+    let lastFpsUpdate = Date.now();
+    let currentActiveKey = null;
+
+    ws.onopen = () => {
+        ws.send(JSON.stringify({ type: 'register', id: 'remote' }));
+        document.getElementById('status').innerText = 'Пульт в сети. Ожидание косилки...';
+        log('Успешная регистрация в облаке Render как [remote]');
+    };
+
+    ws.onmessage = async (message) => {
+        if (message.data instanceof Blob) {
+            try {
+                const bitmap = await createImageBitmap(message.data);
+                if (canvas.width !== bitmap.width) {
+                    canvas.width = bitmap.width;
+                    canvas.height = bitmap.height;
+                }
+                ctx.drawImage(bitmap, 0, 0);
+                bitmap.close();
+
+                frameCount++;
+                const now = Date.now();
+                if (now - lastFpsUpdate >= 1000) {
+                    document.getElementById('status').innerText = `ТРАНСЛЯЦИЯ АКТИВНА | FPS: ${frameCount}`;
+                    frameCount = 0;
+                    lastFpsUpdate = now;
+                }
+            } catch (err) {}
+            return;
+        }
+        log('Получено от сервера: ' + message.data);
+    };
+
+    function sendCmd(action) {
+        if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'control', cmd: action }));
+            log('Отправлена команда: ' + action, action.includes('ENGINE') ? '#ffaa00' : '#00ff00');
+        }
+    }
+
+    const setupMoveBtn = (id, cmdName) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+
+        el.addEventListener('mousedown', () => sendCmd(cmdName));
+        el.addEventListener('touchstart', (e) => { e.preventDefault(); sendCmd(cmdName); });
+
+        if (id !== 'btn-stop') {
+            el.addEventListener('mouseup', () => sendCmd('STOP'));
+            el.addEventListener('touchend', () => sendCmd('STOP'));
+        }
+    };
+
+    const setupEngineBtn = (id, cmdName) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('click', () => sendCmd(cmdName));
+        el.addEventListener('touchstart', (e) => { e.preventDefault(); sendCmd(cmdName); });
+    };
+
+    setupMoveBtn('btn-forward', 'FORWARD');
+    setupMoveBtn('btn-backward', 'BACKWARD');
+    setupMoveBtn('btn-left', 'LEFT');
+    setupMoveBtn('btn-right', 'RIGHT');
+    setupMoveBtn('btn-stop', 'STOP');
+    setupEngineBtn('btn-eng-start', 'ENGINE_START');
+    setupEngineBtn('btn-eng-stop', 'ENGINE_STOP');
+
+    // --- СЛОЙ КЛАВИАТУРЫ ---
+    const keyMap = {
+        'KeyW': { cmd: 'FORWARD', id: 'btn-forward' }, 'ArrowUp': { cmd: 'FORWARD', id: 'btn-forward' },
+        'KeyS': { cmd: 'BACKWARD', id: 'btn-backward' }, 'ArrowDown': { cmd: 'BACKWARD', id: 'btn-backward' },
+        'KeyA': { cmd: 'LEFT', id: 'btn-left' }, 'ArrowLeft': { cmd: 'LEFT', id: 'btn-left' },
+        'KeyD': { cmd: 'RIGHT', id: 'btn-right' }, 'ArrowRight': { cmd: 'RIGHT', id: 'btn-right' },
+        'Space': { cmd: 'STOP', id: 'btn-stop' }
+    };
+
+    document.addEventListener('keydown', (e) => {
+        if (e.repeat) return;
+        const mapping = keyMap[e.code];
+        if (mapping) {
+            e.preventDefault();
+            currentActiveKey = e.code;
+            document.getElementById(mapping.id).classList.add('keyboard-active');
+            sendCmd(mapping.cmd);
+        }
+    });
+
+    document.addEventListener('keyup', (e) => {
+        const mapping = keyMap[e.code];
+        if (mapping) {
+            e.preventDefault();
+            document.getElementById(mapping.id).classList.remove('keyboard-active');
+            if (e.code === currentActiveKey) {
+                currentActiveKey = null;
+                if (e.code !== 'Space') sendCmd('STOP');
+            }
+        }
+    });
+
+    ws.onerror = (e) => { log('Ошибка сети сокета', '#ff0000'); };
+    ws.onclose = () => { document.getElementById('status').innerText = 'Отключено от облака'; };
+
+    function log(msg, color = '#aaa') {
+        const box = document.getElementById('logs');
+        box.innerHTML += `[${new Date().toLocaleTimeString()}] <span style="color:${color}">${msg}</span><br>`;
+        box.scrollTop = box.scrollHeight;
+    }
+</script>
+</body>
+</html>
