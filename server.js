@@ -45,12 +45,17 @@ wss.on('connection', (ws, req) => {
 
                 // Пересылка команд управления от remote к mower
                 if (data.type === 'control' && data.cmd) {
-                    const mowerWs = clients.get('mower');
-                    if (mowerWs && mowerWs.readyState === 1) {
-                        mowerWs.send(data.cmd); 
-                    }
-                    return;
-                }
+    // ВОЗВРАЩАЕМ ЛОГ: Теперь сервер будет четко писать, что и куда он переслал
+    console.log(`[КОМАНДА РУЛЕНИЯ] Пересылаю команду от пульта на косилку: ${data.cmd}`);
+
+    const mowerWs = clients.get('mower');
+    if (mowerWs && mowerWs.readyState === 1) {
+        mowerWs.send(data.cmd); 
+    } else {
+        console.log(`[ВНИМАНИЕ] Команда ${data.cmd} не переслана. Косилка отключена от сети!`);
+    }
+    return; 
+}
             } catch (err) {
                 // Игнорируем ошибки парсинга, идем к видео
             }
