@@ -1,12 +1,12 @@
 const { WebSocketServer } = require('ws');
 
-// ИСПРАВЛЕНО: Берем порт, который требует Render, иначе трафик не зайдет в контейнер
 const serverPort = process.env.PORT || 8080;
 const wss = new WebSocketServer({ port: serverPort });
 const clients = new Map();
 
 wss.on('connection', (ws, req) => {
-    console.log(`[СЕРВЕР] Физический коннект! Всего клиентов на связи: ${wss.clients.size}`);
+    // Выводим реальное число подключений для отладки
+    console.log(`[СЕРВЕР] Физический коннект! Всего сокетов в памяти: ${wss.clients.size}`);
 
     ws.on('message', (message, isBinary) => {
         let messageString = '';
@@ -16,34 +16,43 @@ wss.on('connection', (ws, req) => {
             messageString = message;
         }
 
-        // 1. СНАЧАЛА ПРОВЕРЯЕМ СИСТЕМНЫЙ ТЕКСТ (JSON Регистрация)
+        // 1. СЛОЙ СИСТЕМНОГО ТЕКСТА И КОМАНД (JSON)
         if (messageString.trim().startsWith('{')) {
             try {
                 const data = JSON.parse(messageString);
+                
+                // Обработка регистрации устройств
                 if (data.type === 'register' && data.id) {
+                    
+                    // ЖЕСТКАЯ ЗАЩИТА ОТ ДУБЛИКАТОВ И ЗАВИСАНИЙ:
+                    // Если устройство с таким ID уже было в сети — принудительно гасим старый сокет!
+                    if (clients.has(data.id)) {
+                        console.log(`[ЗАЩИТА] Удаляем зависший дубликат устройства: ${data.id}`);
+                        const oldWs = clients.get(data.id);
+                        try { oldWs.close(); } catch(e) {} // Закрываем старое соединение
+                        clients.delete(data.id);
+                    }
+
                     ws.id = data.id; 
                     clients.set(ws.id, ws);
-                    console.log(`[СЕРВЕР] Успешная регистрация: ${ws.id}`);
+                    console.log(`[СЕРВЕР] Успешная регистрация: ${ws.id}. Активных устройств: ${clients.size}`);
                     
-                    // Сообщаем пульту, что косилка успешно зашла в сеть
                     if (ws.id === 'mower' && clients.has('remote')) {
                         clients.get('remote').send(JSON.stringify({ system: 'mower_online' }));
                     }
                     return; 
                 }
+
+                // Пересылка команд управления от remote к mower
                 if (data.type === 'control' && data.cmd) {
-                    console.log(`[ПЕРЕСЫЛКА] Пульт отправил команду: ${data.cmd}`);
-                    
                     const mowerWs = clients.get('mower');
                     if (mowerWs && mowerWs.readyState === 1) {
                         mowerWs.send(data.cmd); 
-                    } else {
-                        console.log(`[ОШИБКА] Не удалось переслать команду ${data.cmd}. Косилка не в сети!`);
                     }
                     return;
                 }
             } catch (err) {
-                // Если не JSON, идем дальше к стримингу
+                // Игнорируем ошибки парсинга, идем к видео
             }
         }
 
@@ -59,11 +68,13 @@ wss.on('connection', (ws, req) => {
 
     ws.on('close', () => {
         if (ws.id) {
-            clients.delete(ws.id);
-            console.log(`[СЕРВЕР] Устройство отключилось: ${ws.id}`);
+            // Удаляем из карты только если текущий закрывающийся сокет совпадает с тем, что лежит в Map
+            if (clients.get(ws.id) === ws) {
+                clients.delete(ws.id);
+                console.log(`[СЕРВЕР] Устройство отключилось штатно: ${ws.id}`);
+            }
         }
     });
 });
 
-// Выводим порт в консоль для наглядности при старте
 console.log(`Умный видеосервер запущен на порту ${serverPort} в облаке Render и готов к работе!`);
