@@ -98,6 +98,7 @@
     };
 
     ws.onmessage = async (message) => {
+        // 1. Слой приема бинарного видео (Blob)
         if (message.data instanceof Blob) {
             try {
                 const bitmap = await createImageBitmap(message.data);
@@ -111,15 +112,40 @@
                 frameCount++;
                 const now = Date.now();
                 if (now - lastFpsUpdate >= 1000) {
-                    document.getElementById('status').innerText = `ТРАНСЛЯЦИЯ АКТИВНА | FPS: ${frameCount}`;
+                    const statusEl = document.getElementById('status');
+                    statusEl.innerText = `ТРАНСЛЯЦИЯ АКТИВНА | FPS: ${frameCount}`;
+                    statusEl.style.color = '#00ff00'; // Зеленый при активном видео
                     frameCount = 0;
                     lastFpsUpdate = now;
                 }
-            } catch (err) {
-                // Тихо игнорируем битые сетевые пакеты
-            }
+            } catch (err) {}
             return;
         }
+
+        // 2. Слой приема системного текста и JSON от сервера
+        try {
+            // Если пришел JSON (начинается с фигурной скобки)
+            if (message.data.trim().startsWith('{')) {
+                const parsed = JSON.parse(message.data);
+                const statusEl = document.getElementById('status');
+
+                if (parsed.system === 'mower_online') {
+                    statusEl.innerText = 'КОСИЛКА ПОДКЛЮЧЕНА (д. Ворона)';
+                    statusEl.style.color = '#00ff00'; // Зеленый цвет
+                    log('Система: Газонокосилка успешно зашла в сеть!', '#00ff00');
+                }
+                else if (parsed.system === 'mower_offline') {
+                    statusEl.innerText = 'СВЯЗЬ С КОСИЛКОЙ ПОТЕРЯНА!';
+                    statusEl.style.color = '#ff0000'; // Красный цвет
+                    log('ВНИМАНИЕ: Косилка отключилась от сервера!', '#ff0000');
+                }
+                return;
+            }
+        } catch (e) {
+            // Если это не JSON, а обычная строка, просто пропускаем к логированию ниже
+        }
+
+        // Логируем обычные текстовые сообщения
         log('Получено от сервера: ' + message.data);
     };
 
